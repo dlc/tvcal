@@ -4,17 +4,17 @@ Configuration
 Start with a list of shows, and their Zap2It Ids (from
 `http://tvschedule.zap2it.com/`):
 
-  %shows = (
-    'EP00931182' => 'The Big Bang Theory",
-    'EP01569372' => 'Arrow',
-    'EP01279298' => "Bob's Burgers",
-    'EP01739009' => 'Brooklyn Nine-Nine',
-    'EP00750178' => 'Doctor Who',
-    'EP01566290' => 'Gravity Falls',
-    'EP01158124' => 'Modern Family',
-    'EP01922936' => 'The Flash',
-    # etc
-  );
+    %shows = (
+        'EP00931182' => 'The Big Bang Theory",
+        'EP01569372' => 'Arrow',
+        'EP01279298' => "Bob's Burgers",
+        'EP01739009' => 'Brooklyn Nine-Nine',
+        'EP00750178' => 'Doctor Who',
+        'EP01566290' => 'Gravity Falls',
+        'EP01158124' => 'Modern Family',
+        'EP01922936' => 'The Flash',
+        # etc
+    );
 
 This can be hardcoded into the script for now.
 
