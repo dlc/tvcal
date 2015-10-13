@@ -5,7 +5,7 @@ Start with a list of shows, and their Zap2It Ids (from
 `http://tvschedule.zap2it.com/`):
 
     %shows = (
-        'EP00931182' => 'The Big Bang Theory",
+        'EP00931182' => 'The Big Bang Theory',
         'EP01569372' => 'Arrow',
         'EP01279298' => "Bob's Burgers",
         'EP01739009' => 'Brooklyn Nine-Nine',
