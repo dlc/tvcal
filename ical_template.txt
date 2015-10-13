@@ -1,0 +1,18 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+X-WR-CALDESC:TV Shows
+X-WR-CALNAME:Chamberlain TV Calendar
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+
+BEGIN:VEVENT
+DTSTART;TZID=America/Los_Angeles:Show start time
+DTEND;TZID=America/Los_Angeles:Show end time
+SUMMARY:Show Title: "Episode Title" [S00E000 (Channel)
+DESCRIPTION:Episode description (episode url; original air date)
+UID:Hash of summary
+DTSTAMP:Now
+CATEGORIES:TV Shows
+END:VEVENT
+
+END:VCALENDAR

@@ -60,6 +60,7 @@ Inferred schema
 
     CREATE TABLE episode (
         episode id
+        show id         # comes from caller
         title           # comes from schedule page
         description
         season
@@ -78,7 +79,7 @@ Inferred schema
 The Schedule
 ============
 
-For each episode, fetch `http://tvschedule.zap2it.com/tv/*/$ID?aid=tvschedule`
+For each episode, fetch `http://tvschedule.zap2it.com/tv/*/$ID`
 and extract `//li[@class="zc-sc-ep-list-l"]`, which contains the following
 things:
 

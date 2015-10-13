@@ -1,0 +1,119 @@
+#!/usr/bin/perl
+
+use strict;
+use vars qw($ME $VERSION);
+use vars qw(%options);
+
+use DBD::SQLite;
+use DBI;
+use Data::Dumper;
+use File::Basename qw(basename);
+use File::Spec::Functions qw(canonpath catfile file_name_is_absolute);
+use Getopt::Std qw(getopts);
+use JSON;
+use Sevenroot::HTTPClient qw(get);
+
+$VERSION = '0.01';
+$ME = basename($0);
+
+# -t Feed title
+# -O output file
+# -d database file
+getopts('d:t:O:', \%options);
+
+$options{'d'} ||= glob "~/.$ME.db";
+
+# Ensure database exists
+SetupDatabase($options{'d'});
+
+# Extract shows to fetch
+my @shows = (@ARGV, GetShowsFromDatabase($options{'d'}));
+
+for my $show (@shows) {
+    my $episode_id = $show . "0001";
+
+    while ($episode_id) {
+        if (EpisodeExistsInDatabase($options{'d'}, $episode_id)) {
+            # Already found it in the past, move on
+            $episode_id++;
+            next;
+        }
+
+        my $episode_data = FetchEpisodeData($episode_id);
+        if ($episode_data->{'seriedId'}) {
+            my $episode_schedule = FetchEpisodeSchedule($episode_id);
+
+            # merge schedule data into $episode_data
+
+            SaveEpisodeData($episode_data);
+            SaveEpisodeSchedule($episode_schedule);
+        }
+
+        else {
+            # If we got here, the episode doesn't exists, and we're done,
+            # so break out of the loop.
+            $episode_id = undef;
+        }
+    }
+}
+
+my @all_data = GetAllEpisodesFromDatabase($options{'d'});
+my $ics_data = RenderIcs($options{'t'}, \@all_data);
+
+if ($options{'O'}) {
+    open my $fh, ">$options{'O'}.tmp";
+    print $fh $ics_data;
+    close $fh;
+    rename "$options{'O'}.tmp" => $options{'O'};
+}
+else {
+    print $ics_data;
+}
+
+exit;
+
+sub SetupDatabase {
+    my $db_path = shift;
+
+}
+
+sub GetShowsFromDatabase {
+    my $db_path = shift;
+    # SELECT DISTINCT show id FROM episode
+
+    return ();
+}
+
+sub EpisodeExistsInDatabase {
+    my $db_path = shift;
+    my $episode_id = shift;
+}
+
+sub FetchEpisodeData {
+    my $episode_id = shift;
+    # Fetch and parse JSON
+}
+
+sub FetchEpisodeSchedule {
+    my $episode_id = shift;
+    # Fetch and parse HTML
+}
+
+sub SaveEpisodeData {
+    my $data = shift;
+}
+
+sub SaveEpisodeSchedule {
+    my $data = shift;
+}
+
+sub GetAllEpisodesFromDatabase {
+    my $db_path = shift;
+}
+
+sub RenderIcs {
+    my $title = shift;
+    my $shows = shift;
+}
+
+
