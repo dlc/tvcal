@@ -4,14 +4,9 @@ use strict;
 use vars qw($ME $VERSION);
 use vars qw(%options);
 
-use DBD::SQLite;
-use DBI;
 use Data::Dumper;
 use File::Basename qw(basename);
-use File::Spec::Functions qw(canonpath catfile file_name_is_absolute);
 use Getopt::Std qw(getopts);
-use JSON;
-use Sevenroot::HTTPClient qw(get);
 
 $VERSION = '0.01';
 $ME = basename($0);
@@ -23,42 +18,43 @@ getopts('d:t:O:', \%options);
 
 $options{'d'} ||= glob "~/.$ME.db";
 
-# Ensure database exists
-SetupDatabase($options{'d'});
+my $db = TVCalDB->new($options{'d'});
 
-# Extract shows to fetch
-my @shows = (@ARGV, GetShowsFromDatabase($options{'d'}));
+# All shows to fetch
+my @shows = do {
+    my %uniq;
+    sort grep { ++$uniq{$_} == 1 } (@ARGV, $db->shows);
+};
 
-for my $show (@shows) {
-    my $episode_id = $show . "0001";
+for my $show_id (@shows) {
+    # Ensure that the show exists in the db
+    $db->update_show_data($show_id);
 
+    my $episode_id = $show_id . "0001";
+    # my $episode_id = 0; 
     while ($episode_id) {
-        if (EpisodeExistsInDatabase($options{'d'}, $episode_id)) {
+        if ($db->episode($episode_id)) {
             # Already found it in the past, move on
             $episode_id++;
             next;
         }
 
-        my $episode_data = FetchEpisodeData($episode_id);
-        if ($episode_data->{'seriedId'}) {
-            my $episode_schedule = FetchEpisodeSchedule($episode_id);
-
-            # merge schedule data into $episode_data
-
-            SaveEpisodeData($episode_data);
-            SaveEpisodeSchedule($episode_schedule);
+        if ($db->update_episode_data($episode_id, $show_id)) {
+            # Returns true if $episode_id exists, false otherwise
+            $episode_id++;
         }
-
         else {
             # If we got here, the episode doesn't exists, and we're done,
             # so break out of the loop.
             $episode_id = undef;
         }
+
+        sleep 1;
     }
 }
 
-my @all_data = GetAllEpisodesFromDatabase($options{'d'});
-my $ics_data = RenderIcs($options{'t'}, \@all_data);
+my @all_data = $db->data;
+my $ics_data = ''; # RenderIcs($options{'t'}, \@all_data);
 
 if ($options{'O'}) {
     open my $fh, ">$options{'O'}.tmp";
@@ -72,48 +68,189 @@ else {
 
 exit;
 
-sub SetupDatabase {
-    my $db_path = shift;
+package TVCalDB;
 
+use Data::Dumper;
+use DBD::SQLite;
+use DBI;
+use File::Spec::Functions qw(canonpath catfile file_name_is_absolute);
+use JSON qw(from_json);
+use Sevenroot::HTTPClient qw(get head);
+
+use constant SHOW_INFO => "http://tvschedule.zap2it.com/tv/*/%s";
+use constant EPISODE_DATA => "http://tvschedule.zap2it.com/tvlistings/gridDetailService?pgmId=%s";
+
+sub new {
+    my $class = shift;
+    my $db_path = canonpath(shift);
+
+    my $exists = -r $db_path;
+    my $dbh = DBI->connect("DBI:SQLite:dbname=$db_path");
+
+    if (not $exists) {
+        # Initialize the db
+    }
+
+    bless {
+        _PATH => $db_path,
+        _HANDLE => $dbh,
+    } => $class;
 }
 
-sub GetShowsFromDatabase {
-    my $db_path = shift;
-    # SELECT DISTINCT show id FROM episode
-
-    return ();
+sub handle {
+    my $self = shift;
+    return $self->{ '_HANDLE' };
 }
 
-sub EpisodeExistsInDatabase {
-    my $db_path = shift;
+sub _log {
+    my $self = shift;
+    my $msg = shift;
+    $msg =~ s/\s*\r?\n?$//;
+    warn "[$self] $msg\n";
+}
+
+# ----------------------------------------------------------------------
+# update_show_data($show_id) -> show($show_id)
+#
+# Given a show_id, fetch information about the show from the zap2it
+# website and save it in the database.
+# ----------------------------------------------------------------------
+sub update_show_data {
+    my $self = shift;
+    my $show_id = shift;
+    return unless $show_id;
+    return if $show_id =~ /ARRAY/;
+
+    my $show = $self->show($show_id);
+    return $show if keys %$show;
+
+    my $show_url = sprintf SHOW_INFO, $show_id;
+
+    $self->_log("Updating show data for $show_id from $show_url");
+
+    my ($head, $body) = head($show_url);
+
+    $self->_log("Show: id=$show_id title=$head->{'meta'}->{'og:title'} "
+              . "url=$show_url");
+
+    $self->handle->do('
+        INSERT INTO show (id, title, url)
+        VALUES (?, ?, ?)', undef, 
+        $show_id, $head->{'meta'}->{'og:title'}, $show_url);
+
+    return $self->show($show_id);
+}
+
+# ----------------------------------------------------------------------
+# show($show_id) -> \%show
+#
+# Return data about $show_id.
+# ----------------------------------------------------------------------
+sub show {
+    my $self = shift;
+    my $id = shift;
+
+    my $data = $self->handle->selectrow_hashref('
+        SELECT id, title, url
+          FROM show
+         WHERE id = ?
+         LIMIT 1', undef, $id);
+
+    return $data || {};
+}
+
+# ----------------------------------------------------------------------
+# shows() -> @shows
+# 
+# Returns a list of show ids
+# ----------------------------------------------------------------------
+sub shows {
+    my $self = shift;
+    my $db = $self->handle;
+    $self->_log("Getting list of shows");
+
+    my $data = $self->handle->selectall_hashref('
+        SELECT DISTINCT id FROM show
+    ', 'id');
+
+    return keys %$data;
+}
+
+# ----------------------------------------------------------------------
+# episode($episode_id) -> \%episode
+#
+# Returns a hash describing an episode
+# ----------------------------------------------------------------------
+sub episode {
+    my $self = shift;
     my $episode_id = shift;
+
+    my $data = $self->handle->selectrow_hashref('
+        SELECT * FROM episode WHERE id = ?
+    ', undef, $episode_id);
+
+    return $data;
 }
 
-sub FetchEpisodeData {
+# ----------------------------------------------------------------------
+# update_episode_data($episode_id) -> True/False
+# 
+# Fetches data about $episode_id and saves it.  Returns true on
+# success, or false on failure.  Failure indicates either a problem
+# doing the operation or a non-existant episode number.
+# ----------------------------------------------------------------------
+sub update_episode_data {
+    my $self = shift;
     my $episode_id = shift;
-    # Fetch and parse JSON
+    my $show_id = shift;
+    my $episode_data_url = sprintf EPISODE_DATA, $episode_id;
+    my $episode_sched_url = sprintf SHOW_INFO, $episode_id;
+
+    my $episode = $self->episode($episode_id);
+    if (not $episode->{'id'}) {
+        $self->_log("Fetching data for $episode_id from $episode_data_url");
+
+        # Fetch and parse JSON
+        my $body = get($episode_data_url);
+        $body =~ s/^.*=\s*//;
+        my $data = from_json($body);
+        $data = $data->{'program'};
+
+        my $sched = head($episode_sched_url);
+        my ($title) = $sched->{'title'} =~ /-\s*(.+?)\s*-/;
+
+        if ($data->{'seriesId'}) {
+            $self->_log("Saving episode data for $episode_id");
+            my $ep_num = join('', $data->{'seasonNumber'}, $data->{'episodeNumber'}),
+           (my $air_date = $data->{'originalAirDate'}) =~ s/\d\d\d$//;
+           (my $url = $data->{'episodeUrl'}) =~ s/\?aid=zap2it$//;
+
+            $db->handle->do('
+                INSERT INTO episode (id, show_id, title,
+                    episode_number, description, air_date, url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ', undef, $episode_id, $show_id, $title, $ep_num,
+                $data->{'description'}, $air_date, $url);
+            return $self->episode($episode_id);
+        }
+    }
+
+    # Fetch schedule 
+    my $sched = get($episode_sched_url);
+
+    return;
 }
 
-sub FetchEpisodeSchedule {
-    my $episode_id = shift;
-    # Fetch and parse HTML
+sub data {
+    my $self = shift;
+    # Return all schedule data where date > NOW,
+    # organized as an array of hashes and flattened
 }
 
-sub SaveEpisodeData {
-    my $data = shift;
-}
+# Returns the schema as an array of DDL
+sub schema {
+    return (
 
-sub SaveEpisodeSchedule {
-    my $data = shift;
+    );
 }
-
-sub GetAllEpisodesFromDatabase {
-    my $db_path = shift;
-}
-
-sub RenderIcs {
-    my $title = shift;
-    my $shows = shift;
-}
-
 
